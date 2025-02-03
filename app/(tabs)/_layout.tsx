@@ -43,7 +43,7 @@ export default function TabLayout() {
                 }}
             />
             <Tabs.Screen
-                name="sanjosegeofencing"
+                name="weather"
                 options={{
                     title: 'Weather',
                     tabBarIcon: ({ color, size }) => (
