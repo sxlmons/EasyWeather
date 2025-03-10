@@ -8,34 +8,52 @@ import {
     ScrollView,
     TextInput,
     TouchableOpacity,
-    Keyboard
+    Keyboard,
 } from 'react-native';
 import useWeather from '../../hooks/useWeather';
 import useLocation from '../../hooks/useLocation';
-import useNominatim from '../../hooks/useNominatim';
+import useNominatim, { NominatimSearchResult } from '../../hooks/useNominatim';
+
+/**
+ * Define a type for our city data so that all listings include:
+ * city, state, country, latitude, and longitude.
+ */
+interface CityData {
+    id: string;
+    city: string;
+    state: string;
+    country: string;
+    latitude: number;
+    longitude: number;
+}
 
 export default function HomeScreen() {
     // Get the device's current location
     const { location, errorMsg: locationError } = useLocation();
     const { geocode, reverseGeocode } = useNominatim();
-    const [userCity, setUserCity] = useState<{ name: string; latitude: number; longitude: number } | null>(null);
+    const [userCity, setUserCity] = useState<CityData | null>(null);
 
-    // Manage manually added cities (each with an id, name, and coordinates)
-    const [cities, setCities] = useState<Array<{ id: string; name: string; latitude: number; longitude: number }>>([]);
+    // State for manually added cities
+    const [cities, setCities] = useState<CityData[]>([]);
     const [isAddingCity, setIsAddingCity] = useState(false);
     const [newCityName, setNewCityName] = useState('');
+    const [suggestions, setSuggestions] = useState<NominatimSearchResult[]>([]);
 
-    // Reverse geocode the user's location using Nominatim
+    // Reverse geocode the user's location to get structured address details.
     useEffect(() => {
         async function fetchUserCity() {
             if (location) {
                 try {
                     const result = await reverseGeocode(location.latitude, location.longitude);
-                    const { address } = result;
-                    // Use city, town, village, state, or country (whichever is available)
-                    const cityName = address.city || address.town || address.village || address.state || address.country || 'Unknown Location';
+                    const addr = result.address;
+                    const cityName = addr.city || addr.town || addr.village || 'Unknown City';
+                    const state = addr.state || 'Unknown State';
+                    const country = addr.country || 'Unknown Country';
                     setUserCity({
-                        name: cityName,
+                        id: 'user',
+                        city: cityName,
+                        state,
+                        country,
                         latitude: location.latitude,
                         longitude: location.longitude,
                     });
@@ -47,37 +65,70 @@ export default function HomeScreen() {
         fetchUserCity();
     }, [location, reverseGeocode]);
 
-    // Add a city using forward geocoding via Nominatim
-    const addCity = async () => {
-        if (!newCityName) return;
-        try {
-            const results = await geocode(newCityName);
-            if (results && results.length > 0) {
-                const firstResult = results[0];
-                const cityToAdd = {
-                    id: Date.now().toString(), // A simple unique ID
-                    name: newCityName,
-                    latitude: parseFloat(firstResult.lat),
-                    longitude: parseFloat(firstResult.lon),
-                };
-                setCities(prev => [...prev, cityToAdd]);
-                setNewCityName('');
-                setIsAddingCity(false);
-                Keyboard.dismiss();
+    /**
+     * When the user types in the input, call the geocode function after a debounce.
+     * Only perform the search if the input length is greater than 2.
+     */
+    useEffect(() => {
+        const fetchSuggestions = async () => {
+            if (newCityName.length > 2) {
+                try {
+                    const results = await geocode(newCityName);
+                    // Filter results to ensure they include city/town/village, state, and country.
+                    const filtered = results.filter(result => {
+                        const addr = result.address;
+                        return (addr.city || addr.town || addr.village) && addr.state && addr.country;
+                    });
+                    setSuggestions(filtered);
+                } catch (error) {
+                    console.error('Error fetching suggestions:', error);
+                    setSuggestions([]);
+                }
             } else {
-                alert('City not found. Please try another name.');
+                setSuggestions([]);
             }
-        } catch (error) {
-            console.error('Error geocoding city:', error);
-            alert('Error adding city. Please try again.');
+        };
+
+        const delayDebounce = setTimeout(() => {
+            fetchSuggestions();
+        }, 500);
+
+        return () => clearTimeout(delayDebounce);
+    }, [newCityName, geocode]);
+
+    /**
+     * When a suggestion is selected from the dropdown,
+     * extract the required address components and add it to the cities list.
+     */
+    const handleSelectSuggestion = (suggestion: NominatimSearchResult) => {
+        const addr = suggestion.address;
+        const cityName = addr.city || addr.town || addr.village || 'Unknown City';
+        const state = addr.state || 'Unknown State';
+        const country = addr.country || 'Unknown Country';
+        const newCity: CityData = {
+            id: suggestion.place_id.toString(),
+            city: cityName,
+            state,
+            country,
+            latitude: parseFloat(suggestion.lat),
+            longitude: parseFloat(suggestion.lon),
+        };
+
+        // Add the new city if it hasn’t been added already.
+        if (!cities.find(c => c.id === newCity.id)) {
+            setCities(prev => [...prev, newCity]);
         }
+        setNewCityName('');
+        setSuggestions([]);
+        setIsAddingCity(false);
+        Keyboard.dismiss();
     };
 
     return (
         <ScrollView contentContainerStyle={styles.container}>
             <Text style={styles.header}>Weather</Text>
 
-            {/* User’s Location Section */}
+            {/* User's Location Section */}
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Your Location</Text>
                 {locationError ? (
@@ -94,18 +145,24 @@ export default function HomeScreen() {
                 <Text style={styles.sectionTitle}>Other Cities</Text>
                 <View style={styles.addCityContainer}>
                     {isAddingCity ? (
-                        <>
+                        <View style={styles.inputContainer}>
                             <TextInput
                                 style={styles.input}
                                 placeholder="Enter city name"
                                 value={newCityName}
                                 onChangeText={setNewCityName}
-                                onSubmitEditing={addCity}
                             />
-                            <TouchableOpacity onPress={addCity} style={styles.addButton}>
-                                <Text style={styles.addButtonText}>Add</Text>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setIsAddingCity(false);
+                                    setNewCityName('');
+                                    setSuggestions([]);
+                                }}
+                                style={styles.cancelButton}
+                            >
+                                <Text style={styles.cancelButtonText}>X</Text>
                             </TouchableOpacity>
-                        </>
+                        </View>
                     ) : (
                         <TouchableOpacity
                             onPress={() => setIsAddingCity(true)}
@@ -115,7 +172,27 @@ export default function HomeScreen() {
                         </TouchableOpacity>
                     )}
                 </View>
-                {cities.length === 0 ? (
+                {/* Dropdown suggestions */}
+                {isAddingCity && suggestions.length > 0 && (
+                    <View style={styles.suggestionsContainer}>
+                        {suggestions.map(suggestion => {
+                            const addr = suggestion.address;
+                            const displayCity = addr.city || addr.town || addr.village || 'Unknown City';
+                            const displayState = addr.state || 'Unknown State';
+                            const displayCountry = addr.country || 'Unknown Country';
+                            return (
+                                <TouchableOpacity
+                                    key={suggestion.place_id}
+                                    style={styles.suggestionItem}
+                                    onPress={() => handleSelectSuggestion(suggestion)}
+                                >
+                                    <Text>{`${displayCity}, ${displayState}, ${displayCountry}`}</Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                )}
+                {cities.length === 0 && !isAddingCity ? (
                     <Text style={styles.noCityText}>No cities added yet.</Text>
                 ) : (
                     cities.map(city => <CityWeatherItem key={city.id} city={city} />)
@@ -126,15 +203,16 @@ export default function HomeScreen() {
 }
 
 /**
- * A component that displays the weather for a given city.
+ * A component that displays weather information for a given city.
+ * The city name is shown in the required format: {city}, {state}, {country}.
  */
-function CityWeatherItem({ city }: { city: { name: string; latitude: number; longitude: number } }) {
+function CityWeatherItem({ city }: { city: CityData }) {
     const { data, loading, error } = useWeather(city.latitude, city.longitude);
     const currentTemperature = data?.hourly?.temperature_2m?.[0];
 
     return (
         <View style={styles.cityItem}>
-            <Text style={styles.cityName}>{city.name}</Text>
+            <Text style={styles.cityName}>{`${city.city}, ${city.state}, ${city.country}`}</Text>
             {loading ? (
                 <ActivityIndicator size="small" />
             ) : error ? (
@@ -200,6 +278,11 @@ const styles = StyleSheet.create({
         fontSize: 28,
         color: '#fff',
     },
+    inputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
     input: {
         flex: 1,
         height: 40,
@@ -207,17 +290,29 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderRadius: 5,
         paddingHorizontal: 8,
-        marginRight: 8,
     },
-    addButton: {
-        backgroundColor: '#007AFF',
-        paddingHorizontal: 12,
-        paddingVertical: 8,
+    cancelButton: {
+        marginLeft: 8,
+        backgroundColor: '#ff3b30',
+        padding: 8,
         borderRadius: 5,
     },
-    addButtonText: {
+    cancelButtonText: {
         color: '#fff',
-        fontSize: 16,
+        fontWeight: 'bold',
+    },
+    suggestionsContainer: {
+        backgroundColor: '#f9f9f9',
+        borderWidth: 1,
+        borderColor: '#ccc',
+        borderRadius: 5,
+        maxHeight: 200,
+        marginBottom: 16,
+    },
+    suggestionItem: {
+        padding: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: '#eee',
     },
     errorText: {
         color: 'red',

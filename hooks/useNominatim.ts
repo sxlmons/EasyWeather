@@ -8,7 +8,14 @@ export interface NominatimSearchResult {
     display_name: string;
     lat: string;
     lon: string;
-    // Additional properties can be added as needed.
+    address: {
+        city?: string;
+        town?: string;
+        village?: string;
+        state?: string;
+        country?: string;
+        [key: string]: any;
+    };
 }
 
 export interface NominatimReverseResult {
@@ -26,13 +33,14 @@ export interface NominatimReverseResult {
 
 export default function useNominatim() {
     /**
-     * Forward geocoding: Given a query (e.g., a city name), return matching results.
+     * Forward geocoding: Searches by query (e.g., city name)
+     * and returns detailed address information.
      */
     const geocode = useCallback(async (query: string): Promise<NominatimSearchResult[]> => {
-        const url = `${BASE_URL}/search?format=json&q=${encodeURIComponent(query)}`;
+        const url = `${BASE_URL}/search?format=json&addressdetails=1&q=${encodeURIComponent(query)}`;
         const response = await fetch(url, {
             headers: {
-                // Replace with your app name and contact information per Nominatim's usage policy.
+                // Replace with your app name and valid contact info per Nominatim usage policy.
                 'User-Agent': 'YourAppName/1.0 (youremail@example.com)',
             },
         });
@@ -44,11 +52,11 @@ export default function useNominatim() {
     }, []);
 
     /**
-     * Reverse geocoding: Given latitude and longitude, return an address.
+     * Reverse geocoding: Converts coordinates to an address.
      */
     const reverseGeocode = useCallback(
         async (latitude: number, longitude: number): Promise<NominatimReverseResult> => {
-            const url = `${BASE_URL}/reverse?format=json&lat=${latitude}&lon=${longitude}`;
+            const url = `${BASE_URL}/reverse?format=json&addressdetails=1&lat=${latitude}&lon=${longitude}`;
             const response = await fetch(url, {
                 headers: {
                     'User-Agent': 'YourAppName/1.0 (youremail@example.com)',

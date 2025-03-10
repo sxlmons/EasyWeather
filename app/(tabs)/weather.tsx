@@ -290,7 +290,7 @@ export default function DynamicGeofencing() {
                     key={zone.id}
                     coordinates={zone.coordinates}
                     fillColor={getTemperatureColor(zone.temperature)}
-                    strokeColor="rgba(0,0,0,0.5)"
+                    strokeColor="rgba(0,0,0,0.09)"
                 />
             ))}
 
